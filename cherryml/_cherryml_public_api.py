@@ -129,6 +129,14 @@ def cherryml_public_api(
             tree_dir=tree_dir,
             site_rates_dir=site_rates_dir,
         )
+        learned_rate_matrix = read_rate_matrix(
+            os.path.join(outputs["learned_rate_matrix_path"])
+        )
+        write_rate_matrix(
+            learned_rate_matrix.to_numpy(),
+            list(learned_rate_matrix.columns),
+            output_path,
+        )
 
     # -------------------------------------------------------------------------
     # CO-EVOLUTION MODEL
@@ -166,6 +174,14 @@ def cherryml_public_api(
             optimizer_initialization=optimizer_initialization,
             use_maximal_matching=use_maximal_matching,
             tree_dir=tree_dir,
+        )
+        learned_rate_matrix = read_rate_matrix(
+            os.path.join(outputs["learned_rate_matrix_path"])
+        )
+        write_rate_matrix(
+            learned_rate_matrix.to_numpy(),
+            list(learned_rate_matrix.columns),
+            output_path,
         )
 
     # -------------------------------------------------------------------------
@@ -213,20 +229,15 @@ def cherryml_public_api(
             tree_dir=tree_dir,
             site_rates_dir=site_rates_dir,
         )
+        learned_rate_matrix = read_rate_matrix(
+            os.path.join(outputs["learned_rate_matrix_path"])
+        )
+        write_rate_matrix(
+            learned_rate_matrix.to_numpy(),
+            list(learned_rate_matrix.columns),
+            output_path,
+        )
 
     else:
         raise ValueError(f"Unknown model_name: {model_name}")
 
-    # -------------------------------------------------------------------------
-    # Write learned rate matrix
-    # -------------------------------------------------------------------------
-    learned_rate_matrix = read_rate_matrix(
-        os.path.join(outputs["learned_rate_matrix_path"])
-    )
-    write_rate_matrix(
-        learned_rate_matrix.to_numpy(),
-        list(learned_rate_matrix.columns),
-        output_path,
-    )
-
-    return output_path
