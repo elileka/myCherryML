@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 import tqdm
 
 from cherryml import caching
-from cherryml.counting import count_co_transitions, count_transitions
+from cherryml.counting import count_co_transitions, count_transitions, count_paired_transitions
 from cherryml.estimation import jtt_ipw, quantized_transitions_mle
 from cherryml.evaluation import create_maximal_matching_contact_map
 from cherryml.io import (
@@ -444,6 +444,215 @@ def lg_end_to_end_with_cherryml_optimizer(
     #)
     return res
 
+def aa3di_end_to_end_with_cherryml_optimizer(
+    msa_dir_aa: str,
+    msa_dir_3di: str,
+    families: List[str],
+    tree_estimator: PhylogenyEstimatorType,
+    initial_tree_estimator_rate_matrix_path: str,
+    tri_alphabet: List[str],
+    num_iterations: Optional[int] = 1,
+    quantization_grid_center: float = 0.03,
+    quantization_grid_step: float = 1.1,
+    quantization_grid_num_steps: int = 64,
+    use_cpp_counting_implementation: bool = False,
+    optimizer_device: str = "cpu",
+    learning_rate: float = 1e-1,
+    num_epochs: int = 2000,
+    do_adam: bool = True,
+    edge_or_cherry: str = CHERRYML_TYPE,
+    cpp_counting_command_line_prefix: str = "",
+    cpp_counting_command_line_suffix: str = "",
+    num_processes_tree_estimation: int = 8,
+    num_processes_counting: int = 8,
+    num_processes_optimization: int = 2,
+    optimizer_initialization: str = "jtt-ipw",
+    sites_subset_dir: Optional[str] = None,
+    tree_dir: Optional[str] = None,
+    site_rates_dir: Optional[str] = None,
+    aa_alphabet: List[str] = get_amino_acids(),
+) -> Dict:
+    """
+    End-to-end flow for AA+3Di single-site learning over the product alphabet.
+
+    This mirrors lg_end_to_end_with_cherryml_optimizer but uses count_paired_transitions
+    to create counts over the AA×3Di alphabet (states ordered with AA as major axis).
+    Returns the same dictionary structure as lg_end_to_end_with_cherryml_optimizer,
+    including "learned_rate_matrix_path".
+    """
+    if sites_subset_dir is not None and num_iterations > 1:
+        raise ValueError(
+            "You are using more than 1 iteration while learning a model only"
+            "on a subset of sites. This is most certainly a usage error."
+        )
+
+    if (tree_dir is None and site_rates_dir is not None) or (
+        tree_dir is not None and site_rates_dir is None
+    ):
+        raise ValueError(
+            "tree_dir and site_rates_dir must be either both provided or none "
+            f"provided. You provided: tree_dir={tree_dir} ; "
+            f"site_rates_dir={site_rates_dir}"
+        )
+
+    res = {}
+
+    # Create the quantization points in the same way as LG wrapper
+    quantization_points = [
+        ("%.8f" % (quantization_grid_center * quantization_grid_step**i))
+        for i in range(-quantization_grid_num_steps, quantization_grid_num_steps + 1, 1)
+    ]
+    res["quantization_points"] = quantization_points
+
+    time_tree_estimation = 0
+    time_pairing = 0
+    time_ble = 0
+    time_counting = 0
+    time_jtt_ipw = 0
+    time_optimization = 0
+    is_a_pairer = False
+
+    current_estimate_rate_matrix_path = initial_tree_estimator_rate_matrix_path
+    for iteration in range(num_iterations):
+        # prepare/obtain trees + site rates (same logic as LG wrapper)
+        if iteration == 0 and tree_dir is not None and site_rates_dir is not None:
+            tree_estimator_output_dirs = {
+                "output_tree_dir": tree_dir,
+                "output_site_rates_dir": site_rates_dir,
+            }
+        else:
+            tree_estimator_output_dirs = tree_estimator(
+                msa_dir=msa_dir_aa,
+                families=families,
+                rate_matrix_path=current_estimate_rate_matrix_path,
+                num_processes=num_processes_tree_estimation,
+            )
+        res[f"tree_estimator_output_dirs_{iteration}"] = tree_estimator_output_dirs
+
+        time_tree_estimation += _get_tree_estimation_runtime(
+            tree_estimator_output_dirs, families, "total"
+        )
+
+        if is_a_pairer or is_pairer(
+            tree_estimator_output_dirs=tree_estimator_output_dirs, families=families
+        ):
+            is_a_pairer = True
+            time_pairing += _get_tree_estimation_runtime(
+                tree_estimator_output_dirs, families, "pairing"
+            )
+            time_ble += _get_tree_estimation_runtime(
+                tree_estimator_output_dirs, families, "ble"
+            )
+
+        # sites subset handling (reuses same helper as LG wrapper)
+        if sites_subset_dir is not None:
+            res_dict = _subset_data_to_sites_subset(
+                sites_subset_dir=sites_subset_dir,
+                msa_dir=msa_dir_aa,
+                site_rates_dir=tree_estimator_output_dirs["output_site_rates_dir"],
+                families=families,
+                num_processes=num_processes_counting,
+            )
+            msa_dir_aa = res_dict["output_msa_dir"]
+            tree_estimator_output_dirs["output_site_rates_dir"] = res_dict["output_site_rates_dir"]
+            del res_dict
+
+        # Counting step: call count_paired_transitions
+        count_matrices_dir = count_paired_transitions(
+            tree_dir=tree_estimator_output_dirs["output_tree_dir"],
+            msa_dir_aa=msa_dir_aa,
+            msa_dir_3di=msa_dir_3di,
+            site_rates_dir=tree_estimator_output_dirs["output_site_rates_dir"],
+            families=families,
+            tri_alphabet=tri_alphabet,
+            aa_alphabet=aa_alphabet[:],
+            quantization_points=quantization_points,
+            edge_or_cherry=edge_or_cherry,
+            output_count_matrices_dir=None,
+            num_processes=num_processes_counting,
+            use_cpp_implementation=use_cpp_counting_implementation,
+            cpp_command_line_prefix=cpp_counting_command_line_prefix,
+            cpp_command_line_suffix=cpp_counting_command_line_suffix,
+        )["output_count_matrices_dir"]
+
+        res[f"count_matrices_dir_{iteration}"] = count_matrices_dir
+        time_counting += _get_runtime_from_profiling_file(
+            os.path.join(count_matrices_dir, "profiling.txt")
+        )
+
+        # jtt-ipw initialization (identical to LG path)
+        jtt_ipw_dir = jtt_ipw(
+            count_matrices_path=os.path.join(count_matrices_dir, "result.txt"),
+            mask_path=None,
+            use_ipw=True,
+            normalize=False,
+        )["output_rate_matrix_dir"]
+
+        res[f"jtt_ipw_dir_{iteration}"] = jtt_ipw_dir
+        time_jtt_ipw += _get_runtime_from_profiling_file(
+            os.path.join(jtt_ipw_dir, "profiling.txt")
+        )
+
+        # optimizer initialization selection (same choices as LG)
+        initialization_path = None
+        if optimizer_initialization == "jtt-ipw":
+            initialization_path = os.path.join(jtt_ipw_dir, "result.txt")
+        elif optimizer_initialization == "equ":
+            initialization_path = get_equ_path()
+        elif optimizer_initialization == "random":
+            initialization_path = None
+        else:
+            raise ValueError(f"Unknown optimizer_initialization = {optimizer_initialization}")
+
+        # Run the MLE optimizer on the quantized counts (same API as LG)
+        rate_matrix_dir = quantized_transitions_mle(
+            count_matrices_path=os.path.join(count_matrices_dir, "result.txt"),
+            initialization_path=initialization_path,
+            mask_path=None,
+            stationary_distribution_path=None,
+            rate_matrix_parameterization="pande_reversible",
+            device=optimizer_device,
+            learning_rate=learning_rate,
+            num_epochs=num_epochs,
+            do_adam=do_adam,
+            OMP_NUM_THREADS=num_processes_optimization,
+            OPENBLAS_NUM_THREADS=num_processes_optimization,
+        )["output_rate_matrix_dir"]
+
+        time_optimization += _get_runtime_from_profiling_file(
+            os.path.join(rate_matrix_dir, "profiling.txt")
+        )
+
+        res[f"rate_matrix_dir_{iteration}"] = rate_matrix_dir
+        current_estimate_rate_matrix_path = os.path.join(rate_matrix_dir, "result.txt")
+
+    res["learned_rate_matrix_path"] = current_estimate_rate_matrix_path
+    res["all_site_rates"] = _get_all_site_rates(tree_estimator_output_dirs=tree_estimator_output_dirs, families=families)
+    res["time_tree_estimation"] = time_tree_estimation
+
+    if is_a_pairer:
+        res["time_pairing"] = time_pairing
+        res["time_ble"] = time_ble
+
+    res["time_counting"] = time_counting
+    res["time_jtt_ipw"] = time_jtt_ipw
+    res["time_optimization"] = time_optimization
+    res["total_cpu_time"] = time_tree_estimation + time_counting + time_jtt_ipw + time_optimization
+
+    profiling_str = (
+        f"CherryML runtimes:\n"
+        "time_tree_estimation (without parallelization): "
+        f"{res['time_tree_estimation']}\n"
+        f"time_counting: {res['time_counting']}\n"
+        f"time_jtt_ipw: {res['time_jtt_ipw']}\n"
+        f"time_optimization: {res['time_optimization']}\n"
+        f"total_cpu_time: {res['total_cpu_time']}\n"
+    )
+    if is_a_pairer:
+        profiling_str += f"time_pairing {res['time_pairing']}\n" f"time_ble {res['time_ble']}"
+    res["profiling_str"] = profiling_str
+
+    return res
 
 
 def coevolution_end_to_end_with_cherryml_optimizer(
