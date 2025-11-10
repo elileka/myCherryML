@@ -34,6 +34,11 @@ if __name__ == "__main__":
         help="Directory where the training multiple sequence alignments (MSAs) are stored. See README at https://github.com/songlab-cal/CherryML for the expected format of these files.",  # noqa
     )
     parser.add_argument(
+        "--msa_dir_3di",
+        required=False,
+        help="Path to the directory containing 3Di MSAs (for paired AA–3Di evolution mode)",
+    )
+    parser.add_argument(
         "--contact_map_dir",
         type=none_or_value,
         required=False,
