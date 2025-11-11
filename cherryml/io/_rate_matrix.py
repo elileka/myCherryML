@@ -57,7 +57,9 @@ def write_rate_matrix(
 def read_rate_matrix(rate_matrix_path: str) -> pd.DataFrame:
     res = pd.read_csv(
         rate_matrix_path,
-        delim_whitespace=True,
+        #delim_whitespace=True,
+        sep=r"\s+",
+        engine="python",
         index_col=0,
         keep_default_na=False,
         na_values=["_"],
@@ -68,7 +70,9 @@ def read_rate_matrix(rate_matrix_path: str) -> pd.DataFrame:
 def read_mask_matrix(mask_matrix_path: str) -> pd.DataFrame:
     res = pd.read_csv(
         mask_matrix_path,
-        delim_whitespace=True,
+        #delim_whitespace=True,
+        sep=r"\s+",
+        engine="python",
         index_col=0,
         keep_default_na=False,
         na_values=["_"],
@@ -81,7 +85,9 @@ def read_probability_distribution(
 ) -> pd.DataFrame:
     res = pd.read_csv(
         probability_distribution_path,
-        delim_whitespace=True,
+        #delim_whitespace=True,
+        sep=r"\s+",
+        engine="python",
         index_col=0,
         keep_default_na=False,
         na_values=["_"],
