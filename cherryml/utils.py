@@ -91,5 +91,8 @@ def get_families(
         The list of protein family names in the provided directory.
     """
     families = sorted(list(os.listdir(msa_dir)))
-    families = [x.split(".")[0] for x in families if x.endswith(".txt")]
+    # replacing this file ending parsing because it is not friendly to CATH familiy names, e.g. 1.100.1000.1.txt
+    # TODO: consider making this more general than 'txt' file endings...
+    #families = [x.split(".")[0] for x in families if x.endswith(".txt")]
+    families = [os.path.splitext(x)[0] for x in families if x.endswith(".txt")]
     return families
