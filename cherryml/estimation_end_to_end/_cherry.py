@@ -546,16 +546,27 @@ def aa3di_end_to_end_with_cherryml_optimizer(
 
         # sites subset handling (reuses same helper as LG wrapper)
         if sites_subset_dir is not None:
-            res_dict = _subset_data_to_sites_subset(
+            # Subset AA MSA (same as LG)
+            res_dict_aa = _subset_data_to_sites_subset(
                 sites_subset_dir=sites_subset_dir,
                 msa_dir=msa_dir_aa,
                 site_rates_dir=tree_estimator_output_dirs["output_site_rates_dir"],
-                families=families,
-                num_processes=num_processes_counting,
+                trees_dir=tree_estimator_output_dirs["output_trees_dir"],
+                rates_dir=tree_estimator_output_dirs["output_rates_dir"],
             )
-            msa_dir_aa = res_dict["output_msa_dir"]
-            tree_estimator_output_dirs["output_site_rates_dir"] = res_dict["output_site_rates_dir"]
-            del res_dict
+            msa_dir_aa = res_dict_aa["output_msa_dir"]
+            tree_estimator_output_dirs["output_site_rates_dir"] = res_dict_aa["output_site_rates_dir"]
+
+            # Subset 3Di MSA as well to ensure column alignment
+            res_dict_3di = _subset_data_to_sites_subset(
+                sites_subset_dir=sites_subset_dir,
+                msa_dir=msa_dir_3di,
+                site_rates_dir=None,
+                trees_dir=None,
+                rates_dir=None,
+            )
+            msa_dir_3di = res_dict_3di["output_msa_dir"]
+            del res_dict_aa, res_dict_3di
 
         # Counting step: call count_paired_transitions
         count_matrices_dir = count_paired_transitions(
