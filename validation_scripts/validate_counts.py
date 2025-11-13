@@ -64,7 +64,7 @@ def marginalize_aa3di_to_aa(df_aa_3di):
     df_aa = pd.DataFrame(data, index=aa_labels, columns=aa_labels)
     return df_aa
 
-def compare_counts(df1, df2, top_n=20):
+def compare_counts(df1, df2, top_n=400):
     """
     Compare two AA count matrices: max abs diff, sum abs diff, correlations, top mismatches.
     """
