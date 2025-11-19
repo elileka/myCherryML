@@ -512,7 +512,7 @@ def aa3di_end_to_end_with_cherryml_optimizer(
     time_optimization = 0
     is_a_pairer = False
 
-    current_estimate_rate_matrix_path = initial_tree_estimator_rate_matrix_path
+    current_estimate_rate_matrix_path = initial_tree_estimator_rate_matrix_path # same as LG. This is a path to an AA-only matrix
     for iteration in range(num_iterations):
         # prepare/obtain trees + site rates (same logic as LG wrapper)
         if iteration == 0 and tree_dir is not None and site_rates_dir is not None:
@@ -521,10 +521,18 @@ def aa3di_end_to_end_with_cherryml_optimizer(
                 "output_site_rates_dir": site_rates_dir,
             }
         else:
+            if iteration > 0:
+                print(
+                    f"[WARN] FastTree only accepts 20×20 AA matrices. "
+                    f"The learned AA–3Di matrix at {current_estimate_rate_matrix_path} "
+                    f"is ignored. Using default AA model instead. "
+                    f"TODO idea: derive a current update of a 20×20 AA matrix by marginalizing the current AA–3Di matrix."
+                )
             tree_estimator_output_dirs = tree_estimator(
                 msa_dir=msa_dir_aa,
                 families=families,
-                rate_matrix_path=current_estimate_rate_matrix_path,
+                #rate_matrix_path=current_estimate_rate_matrix_path,
+                rate_matrix_path=initial_tree_estimator_rate_matrix_path, # for now, fix at the initial LG matrix. if more iterations are needed - extend code.
                 num_processes=num_processes_tree_estimation,
             )
         res[f"tree_estimator_output_dirs_{iteration}"] = tree_estimator_output_dirs
