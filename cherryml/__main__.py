@@ -12,7 +12,7 @@ def none_or_value(value):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="CherryML applied to the LG and co-evolution models.",
+        description="CherryML applied to the LG, co-evolution and AA-3Di models.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -25,7 +25,7 @@ if __name__ == "__main__":
         "--model_name",
         type=str,
         required=True,
-        help='Either "LG" or "co-evolution". If "LG", a 20x20 rate matrix will be learned. If "co-evolution", a 400x400 rate matrix will be learned.',  # noqa
+        help='Either "LG", "co-evolution" or "AA-3Di". If "LG", a 20x20 rate matrix will be learned. If "co-evolution" or "AA-3Di", a 400x400 rate matrix will be learned.',  # noqa
     )
     parser.add_argument(
         "--msa_dir",
